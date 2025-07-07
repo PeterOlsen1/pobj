@@ -16,7 +16,7 @@ impl<Any: Clone> Clone for Bucket<Any> {
 
 impl<Any: Clone> Bucket<Any> {
     pub fn new() -> Self {
-        Bucket { 
+        Bucket {
             head: None,
             length: 0,
         }
@@ -35,6 +35,28 @@ impl<Any: Clone> Bucket<Any> {
         self.length += 1;
     }
 
+    pub fn to_vec(&self) -> Vec<(String, Any)> {
+        let mut out = Vec::new();
+        let ptr = &self.head;
+        while let Some(cur) = ptr {
+            out.push((cur.key.clone(), cur.data.clone()));
+        }
+        out
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (String, Any)> {
+        let mut cur = self.get_head();
+        std::iter::from_fn(move || {
+            if let Some(bucket) = cur {
+                let res = (bucket.key.clone(), bucket.data.clone());
+                cur = bucket.get_next();
+                Some(res)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn get_head(&self) -> Option<&Node<Any>> {
         self.head.as_deref()
     }
@@ -43,7 +65,7 @@ impl<Any: Clone> Bucket<Any> {
         let mut cur = self.head.as_deref();
         while let Some(bucket) = cur {
             if bucket.key == key {
-                return Some(&bucket.data); 
+                return Some(&bucket.data);
             }
             cur = bucket.get_next();
         }

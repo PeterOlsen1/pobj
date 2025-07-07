@@ -1,16 +1,14 @@
-use std::fmt::Error;
-use std::sync::{Arc, RwLock};
+use crate::bucket::Bucket;
+use std::fmt;
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use crate::{
-    bucket::Bucket,
-};
 
 const DEFAULT_SIZE: usize = 16;
 
+// make a trait to define function headers?
 pub struct Table<Any> {
-    buckets: Arc<RwLock<Vec<Bucket<Any>>>>
+    buckets: Arc<RwLock<Vec<Bucket<Any>>>>,
 }
-
 
 /// Non async table impls
 impl<Any: Clone> Table<Any> {
@@ -74,20 +72,66 @@ impl<Any: Clone + Copy> Table<Any> {
         let idx = self.hash(key);
         if let Some(bucket) = self.get_read_bucket(idx) {
             bucket.get_value_from_key(key).copied()
-        }
-        else {
+        } else {
             None
         }
     }
 
+    pub fn items(&self) -> Vec<(String, Any)> {
+        let mut out = Vec::new();
+        let buckets = match self.buckets.read() {
+            Ok(buckets) => buckets,
+            Err(_) => return out,
+        };
+        let bucket_len = buckets.len();
+
+        for i in 0..bucket_len {
+            if let Some(bucket) = buckets.get(i) {
+                out.extend(bucket.to_vec());
+            }
+        }
+
+        out
+    }
+
+    ///return all items as an iterator. I thought I'd do this for fun, turning out to be sort of a pain
+    ///
+    /// TODO!!!: fix this
+    pub fn iter_items(&self) -> impl Iterator<Item = (String, Any)> {
+        let buckets = self.buckets.read().unwrap();
+        let mut cur_idx = 0;
+        let mut cur_iter = buckets.get(cur_idx).map(|bucket| bucket.iter());
+
+        std::iter::from_fn(move || {
+            loop {
+                if let Some(iter) = &mut cur_iter {
+                    if let Some(res) = iter.next() {
+                        return Some(res);
+                    }
+                }
+
+                // Move to the next bucket
+                cur_idx += 1;
+                if cur_idx >= buckets.len() {
+                    return None;
+                }
+
+                cur_iter = buckets.get(cur_idx).map(|bucket| bucket.iter());
+            }
+        })
+    }
+}
+
+///implementation of any threaded methods
+impl<Any: Clone + Copy + Send + Sync + 'static> Table<Any> {
     ///can't return a mutable reference here, create a method to take in a functino
     /// and apply it to a given bucket?
-    /// 
+    ///
     /// would either be:
     /// * update
     /// * delete
     /// * create
-    /// 
+    ///
     /// ```rust
     /// apply_write_bucket(&mut self, idx: usize, function?) {
     ///     //apply the function to the given bucket
@@ -103,47 +147,70 @@ impl<Any: Clone + Copy> Table<Any> {
     //         Err(_) => None,
     //     }
     // }
-
-    fn add(&mut self, key: &str, data: Any) -> Option<()> {
-        let idx = self.hash(key);
-        self.apply_write_bucket(idx, |bucket| {
-            Some(bucket.add(key, data))
-        })
-    }
-}
-
-
-///implementation of any threaded methods
-impl<Any: Clone + Copy + Send + Sync + 'static> Table<Any> {
     fn apply_write_bucket<F>(&mut self, idx: usize, func: F) -> Option<()>
-    where F: Fn(&mut Bucket<Any>) -> Option<()> {
+    where
+        F: Fn(&mut Bucket<Any>) -> Option<()>,
+    {
         match self.buckets.write() {
-            Ok(mut buckets) =>  {
+            Ok(mut buckets) => {
                 let bucket = &mut buckets[idx];
                 func(bucket)
-            },
+            }
             Err(_) => None,
         }
     }
 
-    
     ///put a key/value combo into the object
-    /// 
-    /// also do a check for resizing here?
-    pub fn put(&mut self, key: &str, data: Any) -> Result<(), Error> {
+    ///
+    /// TODO: resize check + actually do it
+    /// * make helper function that takes in the table to resize?
+    pub fn put(self, key: &str, data: Any) -> Result<(), TableError>
+// where Self: Send + 'static
+    {
         let idx = self.hash(key);
         let table_clone = Arc::clone(&self.buckets);
-
         let data_clone = data.clone();
-        let key_clone = key.clone();
-        thread::spawn(move || {
-            let buckets = table_clone.write().unwrap();
-            let bucket = buckets.get(idx);
+        let key_clone = key.to_string();
+        let handle = thread::spawn(move || {
+            let mut buckets = table_clone.write().unwrap();
+            let bucket = buckets.get_mut(idx);
             match bucket {
-                Some(b) => b.add(key, data),
-                None => Error::new("Could not grab bucket from hash table!")
+                Some(b) => Ok(b.add(&key_clone, data_clone)),
+                None => Err(TableError::new("Could not grab bucket from hash table!")),
             }
         });
-        Ok(())
+
+        let self_arc = Arc::new(Mutex::new(self));
+        let self_arc_clone = Arc::clone(&self_arc);
+
+        thread::spawn(move || {
+            let mut self_locked = self_arc_clone.lock().unwrap();
+            todo!("resize here");
+        });
+
+        let res = handle.join().unwrap();
+        res
+    }
+}
+
+// custom error implementation down here
+#[derive(Debug)]
+pub enum TableError {
+    WriteFailed(String),
+}
+
+impl TableError {
+    pub fn new(message: &str) -> Self {
+        TableError::WriteFailed(message.to_string())
+    }
+}
+
+impl fmt::Display for TableError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TableError::WriteFailed(message) => {
+                write!(f, "Write failed: {}", message)
+            }
+        }
     }
 }
