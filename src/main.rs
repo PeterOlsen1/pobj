@@ -1,16 +1,19 @@
 pub mod bucket;
 pub mod node;
-pub mod table;
+pub mod pobj;
 
-// use crate::table::Table;
+use crate::pobj::Pobj;
 
 fn main() {
     let mut iter = iter_test();
-    for _ in 1..100 {
-        if let Some(res) = iter.next() {
-            println!("{}", res);
-        }
-    }
+    // for _ in 1..100 {
+    //     if let Some(res) = iter.next() {
+    //         println!("{}", res);
+    //     }
+    // }
+
+    let table = Pobj::new();
+    let _ = table.put("first", 1);
 }
 
 ///testing iterator
