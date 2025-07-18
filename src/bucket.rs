@@ -1,20 +1,21 @@
 use crate::node::Node;
+use crate::traits::CloneableAny;
 
-pub struct Bucket<Any> {
-    head: Option<Box<Node<Any>>>,
+pub struct Bucket {
+    head: Option<Box<Node>>, // Updated to use Box<Node> with Box<dyn CloneableAny> inside Node
     length: usize,
 }
 
-impl<Any: Clone> Clone for Bucket<Any> {
+impl Clone for Bucket {
     fn clone(&self) -> Self {
         Bucket {
-            head: self.head.clone(),
+            head: self.head.as_ref().map(|node| Box::new((**node).clone())),
             length: self.length,
         }
     }
 }
 
-impl<Any: Clone> Bucket<Any> {
+impl Bucket {
     pub fn new() -> Self {
         Bucket {
             head: None,
@@ -26,7 +27,7 @@ impl<Any: Clone> Bucket<Any> {
         self.length
     }
 
-    pub fn add(&mut self, key: &str, data: Any) {
+    pub fn add(&mut self, key: &str, data: Box<dyn CloneableAny>) {
         let mut new_bucket = Node::new(key, data);
         if let Some(head) = self.head.take() {
             new_bucket.set_next(*head);
@@ -35,20 +36,21 @@ impl<Any: Clone> Bucket<Any> {
         self.length += 1;
     }
 
-    pub fn to_vec(&self) -> Vec<(String, Any)> {
+    pub fn to_vec(&self) -> Vec<(String, Box<dyn CloneableAny>)> {
         let mut out = Vec::new();
-        let ptr = &self.head;
-        while let Some(cur) = ptr {
-            out.push((cur.key.clone(), cur.data.clone()));
+        let mut cur = self.head.as_deref();
+        while let Some(bucket) = cur {
+            out.push((bucket.key.clone(), bucket.data.clone_box()));
+            cur = bucket.get_next();
         }
         out
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (String, Any)> {
+    pub fn iter(&self) -> impl Iterator<Item = (String, Box<dyn CloneableAny>)> {
         let mut cur = self.get_head();
         std::iter::from_fn(move || {
             if let Some(bucket) = cur {
-                let res = (bucket.key.clone(), bucket.data.clone());
+                let res = (bucket.key.clone(), bucket.data.clone_box());
                 cur = bucket.get_next();
                 Some(res)
             } else {
@@ -57,15 +59,15 @@ impl<Any: Clone> Bucket<Any> {
         })
     }
 
-    pub fn get_head(&self) -> Option<&Node<Any>> {
+    pub fn get_head(&self) -> Option<&Node> {
         self.head.as_deref()
     }
 
-    pub fn get_value_from_key(&self, key: &str) -> Option<&Any> {
+    pub fn get_value_from_key(&self, key: &str) -> Option<&dyn CloneableAny> {
         let mut cur = self.head.as_deref();
         while let Some(bucket) = cur {
             if bucket.key == key {
-                return Some(&bucket.data);
+                return Some(bucket.data.as_ref() as &dyn CloneableAny);
             }
             cur = bucket.get_next();
         }

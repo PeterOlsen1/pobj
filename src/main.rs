@@ -1,6 +1,7 @@
 pub mod bucket;
 pub mod node;
 pub mod pobj;
+pub mod traits;
 
 use crate::pobj::Pobj;
 
@@ -14,6 +15,7 @@ fn main() {
 
     let table = Pobj::new();
     let _ = table.put("first", 1);
+    let _ = table.put("second", "hello!");
 }
 
 ///testing iterator

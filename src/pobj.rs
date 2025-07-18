@@ -1,4 +1,6 @@
 use crate::bucket::Bucket;
+use crate::traits::CloneableAny;
+use std::any::Any;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -6,12 +8,12 @@ use std::thread;
 const DEFAULT_SIZE: usize = 16;
 
 // make a trait to define function headers?
-pub struct Pobj<Any> {
-    buckets: Arc<RwLock<Vec<Bucket<Any>>>>,
+pub struct Pobj {
+    buckets: Arc<RwLock<Vec<Bucket>>>,
 }
 
 /// Non async table impls
-impl<Any: Clone> Pobj<Any> {
+impl Pobj {
     pub fn new() -> Self {
         let mut buckets = Vec::with_capacity(DEFAULT_SIZE);
         for _ in 0..DEFAULT_SIZE {
@@ -51,27 +53,29 @@ impl<Any: Clone> Pobj<Any> {
     pub fn upsert(&mut self) {
         todo!("Upsert for cool people?")
     }
-}
 
-impl<Any: Clone + Copy> Pobj<Any> {
     ///return a read-only clone of the original bucket
-    fn get_read_bucket(&self, idx: usize) -> Option<Bucket<Any>> {
+    fn get_read_bucket(&self, idx: usize) -> Option<Bucket> {
         match self.buckets.read() {
             Ok(buckets) => Some(buckets[idx].clone()),
             Err(_) => None,
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<Any> {
+    pub fn get<T>(&self, key: &str) -> Option<T>
+    where
+        T: CloneableAny + 'static,
+     {
         let idx = self.hash(key);
         if let Some(bucket) = self.get_read_bucket(idx) {
-            bucket.get_value_from_key(key).copied()
-        } else {
-            None
+            if let Some(value) = bucket.get_value_from_key(key) {
+                return Some(value)
+            }
         }
-    }
+        None
+    } 
 
-    pub fn items(&self) -> Vec<(String, Any)> {
+    pub fn items(&self) -> Vec<(String, Box<dyn CloneableAny>)> {
         let mut out = Vec::new();
         let buckets = match self.buckets.read() {
             Ok(buckets) => buckets,
@@ -117,33 +121,11 @@ impl<Any: Clone + Copy> Pobj<Any> {
 }
 
 ///implementation of any threaded methods
-impl<Any: Clone + Copy + Send + Sync + 'static> Pobj<Any> {
-    ///can't return a mutable reference here, create a method to take in a functino
-    /// and apply it to a given bucket?
-    ///
-    /// would either be:
-    /// * update
-    /// * delete
-    /// * create
-    ///
-    /// ```rust
-    /// apply_write_bucket(&mut self, idx: usize, function?) {
-    ///     //apply the function to the given bucket
-    /// }
-    /// ```
-    // fn apply_write_bucket<F>(&mut self, idx: usize, func: F) -> Option<()>
-    // where F: Fn(&mut Bucket<Any>) -> Option<()> {
-    //     match self.buckets.write() {
-    //         Ok(mut buckets) =>  {
-    //             let bucket = &mut buckets[idx];
-    //             func(bucket)
-    //         },
-    //         Err(_) => None,
-    //     }
-    // }
+impl Pobj {
+    /// Apply a function to a bucket at the given index with write access
     fn apply_write_bucket<F>(&mut self, idx: usize, func: F) -> Option<()>
     where
-        F: Fn(&mut Bucket<Any>) -> Option<()>,
+        F: Fn(&mut Bucket) -> Option<()>,
     {
         match self.buckets.write() {
             Ok(mut buckets) => {
@@ -154,22 +136,23 @@ impl<Any: Clone + Copy + Send + Sync + 'static> Pobj<Any> {
         }
     }
 
-    ///put a key/value combo into the object
+    /// Put a key/value combo into the object.
     ///
     /// TODO: resize check + actually do it
     /// * make helper function that takes in the table to resize?
-    pub fn put(self, key: &str, data: Any) -> Result<(), PobjError>
-// where Self: Send + 'static
+    pub fn put<T>(&self, key: &str, data: T) -> Result<(), PobjError>
+    where
+        T: CloneableAny + Send + Sync + 'static,
     {
+        let boxed_data = Box::new(data);
         let idx = self.hash(key);
         let table_clone = Arc::clone(&self.buckets);
-        let data_clone = data.clone();
         let key_clone = key.to_string();
         let handle = thread::spawn(move || {
             let mut buckets = table_clone.write().unwrap();
             let bucket = buckets.get_mut(idx);
             match bucket {
-                Some(b) => Ok(b.add(&key_clone, data_clone)),
+                Some(b) => Ok(b.add(&key_clone, boxed_data)),
                 None => Err(PobjError::new("Could not grab bucket from hash table!")),
             }
         });
@@ -187,10 +170,10 @@ impl<Any: Clone + Copy + Send + Sync + 'static> Pobj<Any> {
     }
 }
 
-fn get_load_factor<Any>(buckets: &Vec<Bucket<Any>>) -> () {
+fn get_load_factor(buckets: &Vec<Bucket>) -> () {
     print!("bruh");
 }
-fn resize<Any>(buckets: &mut Vec<Bucket<Any>>) -> () {
+fn resize(buckets: &mut Vec<Bucket>) -> () {
 
 }
 
