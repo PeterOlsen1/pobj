@@ -16,6 +16,9 @@ fn main() {
     let table = Pobj::new();
     let _ = table.put("first", 1);
     let _ = table.put("second", "hello!");
+    if let Some(res) = table.get("second") {
+        
+    }
 }
 
 ///testing iterator

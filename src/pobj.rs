@@ -2,7 +2,7 @@ use crate::bucket::Bucket;
 use crate::traits::CloneableAny;
 use std::any::Any;
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::thread;
 
 const DEFAULT_SIZE: usize = 16;
@@ -69,7 +69,7 @@ impl Pobj {
         let idx = self.hash(key);
         if let Some(bucket) = self.get_read_bucket(idx) {
             if let Some(value) = bucket.get_value_from_key(key) {
-                return Some(value)
+                return value;
             }
         }
         None
